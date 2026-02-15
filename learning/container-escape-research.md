@@ -1156,15 +1156,31 @@ spec:
 
 ---
 
-## 8. 参考资料
+## 8. 动手实验
 
-### 8.1 官方文档
+> 理论学完了，现在动手实践！
+
+详细的攻击复现和检测实验，请参考：
+
+👉 **[实验三：容器逃逸攻击与检测](lab-03-container-escape.md)**
+
+实验内容包括：
+- 特权容器逃逸复现
+- Cgroup Release Agent 逃逸复现
+- Docker Socket 逃逸复现
+- Tracee 检测验证
+
+---
+
+## 9. 参考资料
+
+### 9.1 官方文档
 - [Tracee Documentation](https://aquasecurity.github.io/tracee/)
 - [Docker Security](https://docs.docker.com/engine/security/)
 - [Kubernetes Security](https://kubernetes.io/docs/concepts/security/)
 - [MITRE ATT&CK - Containers](https://attack.mitre.org/matrices/enterprise/containers/)
 
-### 8.2 关键代码文件
+### 9.2 关键代码文件
 
 | 文件 | 说明 |
 |------|------|
@@ -1175,7 +1191,7 @@ spec:
 | `pkg/containers/containers.go` | 容器管理器 |
 | `pkg/containers/runtime/` | 运行时适配器 |
 
-### 8.3 扩展阅读
+### 9.3 扩展阅读
 - [Container Escape Techniques](https://blog.trailofbits.com/2019/07/19/understanding-docker-container-escapes/)
 - [HackTricks - Docker Breakout](https://book.hacktricks.xyz/linux-hardening/privilege-escalation/docker-security/docker-breakout-privilege-escalation)
 - [CVE-2019-5736 Analysis](https://unit42.paloaltonetworks.com/breaking-docker-via-runc-explaining-cve-2019-5736/)

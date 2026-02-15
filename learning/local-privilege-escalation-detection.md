@@ -192,7 +192,7 @@ int BPF_KPROBE(trace_commit_creds)
 
     // 4. 检测权限提升
     // 情况1: UID 变成 0（变成 root）
-    // 情况2: EUID 变成 0（有效权限变��� root）
+    // 情况2: EUID 变成 0（有效权限变成 root）
     // 情况3: 从非 0 变成 0
 
     if ((old_euid != 0 && new_euid == 0) ||
@@ -352,7 +352,179 @@ if (parent_comm in ["nginx", "apache", "php-fpm", "node"]) {
 
 ---
 
-## 4. 参考资料
+## 4. 动手实验
+
+> 理论学完了，现在动手实践！
+
+### 4.1 快速验证：使用 Tracee 检测提权
+
+```bash
+# 终端 1：启动 Tracee 监控 commit_creds
+sudo tracee --events commit_creds
+
+# 终端 2：触发提权（需要先设置 SUID）
+sudo chmod u+s /usr/bin/find
+su - testuser  # 切换到普通用户
+find /etc/passwd -exec whoami \;
+
+# 观察终端 1 的输出，应该能看到 EUID 从 1000 变成 0
+```
+
+### 4.2 完整实验教程
+
+详细的攻击复现和检测实现，请参考：
+
+👉 **[实验一：本地提权攻击与检测](lab-01-privilege-escalation.md)**
+
+实验内容包括：
+- SUID 提权攻击��现
+- Tracee 检测验证
+- 自己编写 eBPF 提权检测程序（完整代码）
+
+---
+
+## 5. Tracee 中的实现分析
+
+### 5.1 Tracee 如何检测提权
+
+Tracee 使用 `SetuidEvent` 事件来检测提权：
+
+```go
+// pkg/events/core.go 中的事件定义
+SetuidEventID = EventID(...)
+
+// 事件会包含 old_cred 和 new_cred 信息
+```
+
+### 5.2 相关源码文件
+
+| 文件 | 说明 |
+|------|------|
+| `pkg/ebpf/c/tracee.bpf.c` | eBPF 程序主文件 |
+| `pkg/ebpf/c/types.h` | slim_cred_t 等类型定义 |
+| `pkg/events/core.go` | 事件定义 |
+| `signatures/golang/` | 提权相关签名 |
+
+### 5.3 关键代码片段
+
+Tracee 的 slim_cred_t 定义（简化版）：
+
+```c
+// pkg/ebpf/c/types.h
+typedef struct slim_cred {
+    uid_t uid;
+    gid_t gid;
+    uid_t suid;
+    gid_t sgid;
+    uid_t euid;
+    gid_t egid;
+    uid_t fsuid;
+    gid_t fsgid;
+    u64 cap_inheritable;
+    u64 cap_permitted;
+    u64 cap_effective;
+    u64 cap_bset;
+    u64 cap_ambient;
+} slim_cred_t;
+```
+
+---
+
+## 6. 扩展检测场景
+
+### 6.1 检测 Capabilities 提升
+
+除了 UID 变化，还应该检测 capabilities 的提升：
+
+```c
+// 检测 capabilities 增加
+u64 old_cap = old_cred->cap_effective;
+u64 new_cap = new_cred->cap_effective;
+
+// 新增的 capabilities
+u64 added_caps = new_cap & ~old_cap;
+
+if (added_caps != 0) {
+    // 检测到 capabilities 提升
+    // 特别关注高危能力：
+    // CAP_SYS_ADMIN (21)
+    // CAP_SYS_PTRACE (19)
+    // CAP_SYS_MODULE (16)
+}
+```
+
+### 6.2 检测容器内提权
+
+容器内的提权更需要关注：
+
+```c
+// 获取 cgroup ID 判断是否在容器中
+u64 cgroup_id = bpf_get_current_cgroup_id();
+
+// 如果在容器中且发生提权，优先级更高
+if (is_container(cgroup_id) && is_privilege_escalation) {
+    event.severity = CRITICAL;
+}
+```
+
+### 6.3 检测内核漏洞利用
+
+内核漏洞利用通常有以下特征：
+
+```c
+// 可疑特征：
+// 1. 不是从已知的提权程序触发
+// 2. 调用栈异常（没有经过 setuid 系统调用）
+// 3. 进程名是普通程序（非 sudo/su）
+
+// 使用 bpf_get_stack 获取调用栈
+int ret = bpf_get_stack(ctx, stack, sizeof(stack), BPF_F_USER_STACK);
+// 分析调用栈中是否有异常
+```
+
+---
+
+## 7. 性能考量
+
+### 7.1 commit_creds 调用频率
+
+- `commit_creds` 不是高频调用的函数
+- 大多数进程启动时会调用一次
+- sudo/su 等命令会触发
+- 对系统性能影响很小
+
+### 7.2 优化建议
+
+```c
+// 1. 早期过滤：在 eBPF 中就过滤掉不需要的事件
+if (old_euid == new_euid && old_uid == new_uid) {
+    return 0;  // 没有变化，直接返回
+}
+
+// 2. 使用 BPF Maps 缓存白名单
+// 避免每次都比较字符串
+```
+
+---
+
+## 8. 关联文档
+
+| 文档 | 说明 |
+|------|------|
+| [本地提权攻击技术](local-privilege-escalation-attacks.md) | 攻击原理和手法 |
+| [实验一：提权攻防](lab-01-privilege-escalation.md) | 动手实验教程 |
+| [核心概念通俗解释](concepts-explained.md) | cred 结构等概念 |
+| [eBPF 实现详解](03-ebpf-implementation.md) | Tracee 的 eBPF 实现 |
+
+---
+
+## 9. 参考资料
 
 - [Linux 内核 cred.c](https://elixir.bootlin.com/linux/latest/source/kernel/cred.c)
 - [eBPF CO-RE 参考](https://nakryiko.com/posts/bpf-portability-and-co-re/)
+- [Tracee 官方文档](https://aquasecurity.github.io/tracee/)
+- [MITRE ATT&CK - Privilege Escalation](https://attack.mitre.org/tactics/TA0004/)
+
+---
+
+_最后更新：2026-02-15_
