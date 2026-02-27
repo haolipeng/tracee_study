@@ -35,6 +35,7 @@ var ExportedSignatures = []detect.Signature{
 	&ProcFopsHooking{},
 	&SyscallTableHooking{},
 	&DroppedExecutable{},
+	&DangerousCommandExecution{},
 }
 
 // ExportedDataSources fulfills the goplugins contract required by the rule-engine
